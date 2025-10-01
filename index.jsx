@@ -1,0 +1,282 @@
+import React, { useState } from 'react';
+import { Upload, Download, Github, AlertCircle } from 'lucide-react';
+import QRCode from 'qrcode';
+
+export default function QRPDFGenerator() {
+  const [file, setFile] = useState(null);
+  const [qrCode, setQrCode] = useState('');
+  const [pdfUrl, setPdfUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [githubToken, setGithubToken] = useState('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');
+  const [repoName, setRepoName] = useState('QrPdf');
+  const [showConfig, setShowConfig] = useState(false);
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      if (selectedFile.type !== 'application/pdf') {
+        setError('Please select a PDF file');
+        return;
+      }
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        setError('File size must be less than 10MB');
+        return;
+      }
+      setFile(selectedFile);
+      setError('');
+    }
+  };
+
+  const uploadToGitHub = async () => {
+    if (!file || !githubToken || !repoName) {
+      setError('Please provide all required information');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Read file as base64
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      
+      reader.onload = async () => {
+        const base64Content = reader.result.split(',')[1];
+        const fileName = `pdf_${Date.now()}_${file.name}`;
+        const path = `pdfs/${fileName}`;
+
+        // Upload to GitHub
+        const response = await fetch(
+          `https://api.github.com/repos/${repoName}/contents/${path}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Authorization': `token ${githubToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: `Add PDF: ${fileName}`,
+              content: base64Content,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to upload to GitHub');
+        }
+
+        const data = await response.json();
+        const rawUrl = `https://raw.githubusercontent.com/${repoName}/main/${path}`;
+        
+        setPdfUrl(rawUrl);
+
+        // Generate QR code
+        const qrDataUrl = await QRCode.toDataURL(rawUrl, {
+          width: 300,
+          margin: 2,
+          color: {
+            dark: '#1a1a1a',
+            light: '#ffffff',
+          },
+        });
+
+        setQrCode(qrDataUrl);
+        setLoading(false);
+      };
+
+      reader.onerror = () => {
+        setError('Failed to read file');
+        setLoading(false);
+      };
+    } catch (err) {
+      setError(err.message || 'Failed to generate QR code');
+      setLoading(false);
+    }
+  };
+
+  const downloadQR = () => {
+    const link = document.createElement('a');
+    link.href = qrCode;
+    link.download = `qr_${file.name}.png`;
+    link.click();
+  };
+
+  const reset = () => {
+    setFile(null);
+    setQrCode('');
+    setPdfUrl('');
+    setError('');
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 p-4 flex items-center justify-center">
+      <div className="max-w-2xl w-full bg-white rounded-2xl shadow-2xl p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">
+            QR PDF Generator
+          </h1>
+          <p className="text-gray-600">
+            Upload a PDF and generate a scannable QR code
+          </p>
+        </div>
+
+        {showConfig && !qrCode && (
+          <div className="mb-6 p-6 bg-blue-50 rounded-xl border-2 border-blue-200">
+            <div className="flex items-start gap-3 mb-4">
+              <Github className="text-blue-600 mt-1" size={24} />
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-800 mb-2">GitHub Configuration</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Configure your GitHub repo to store PDFs
+                </p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  GitHub Token (with repo permissions)
+                </label>
+                <input
+                  type="password"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                  placeholder="ghp_xxxxxxxxxxxx"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Repository Name (username/repo)
+                </label>
+                <input
+                  type="text"
+                  value={repoName}
+                  onChange={(e) => setRepoName(e.target.value)}
+                  placeholder="username/qr-pdf-app"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            
+            <button
+              onClick={() => setShowConfig(false)}
+              className="mt-4 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
+            >
+              Save Configuration
+            </button>
+          </div>
+        )}
+
+        {!showConfig && !qrCode && (
+          <div className="mb-6">
+            <button
+              onClick={() => setShowConfig(true)}
+              className="text-blue-600 text-sm hover:underline flex items-center gap-2"
+            >
+              <Github size={16} />
+              Edit GitHub Configuration
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="text-red-500" size={20} />
+              <p className="text-red-700">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {!qrCode ? (
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Upload PDF (Max 10MB)
+              </label>
+              <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-purple-500 transition cursor-pointer">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label htmlFor="file-upload" className="cursor-pointer">
+                  <Upload className="mx-auto text-gray-400 mb-3" size={48} />
+                  <p className="text-gray-600 mb-1">
+                    Click to upload or drag and drop
+                  </p>
+                  <p className="text-sm text-gray-500">PDF up to 10MB</p>
+                </label>
+              </div>
+            </div>
+
+            {file && (
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Selected file:</p>
+                <p className="font-medium text-gray-800">{file.name}</p>
+                <p className="text-xs text-gray-500">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={uploadToGitHub}
+              disabled={!file || loading || !githubToken || !repoName}
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-500 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Generating QR Code...' : 'Generate QR Code'}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="text-center">
+              <div className="inline-block p-6 bg-white rounded-xl shadow-lg">
+                <img src={qrCode} alt="QR Code" className="mx-auto" />
+              </div>
+            </div>
+
+            <div className="p-4 bg-green-50 rounded-lg">
+              <p className="text-sm text-green-800 mb-2 font-medium">
+                ✓ QR Code Generated Successfully!
+              </p>
+              <p className="text-xs text-green-700 break-all">
+                PDF URL: {pdfUrl}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={downloadQR}
+                className="flex items-center justify-center gap-2 bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition"
+              >
+                <Download size={20} />
+                Download QR
+              </button>
+              <button
+                onClick={reset}
+                className="bg-gray-200 text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-300 transition"
+              >
+                Generate New
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-8 pt-6 border-t border-gray-200">
+          <p className="text-xs text-gray-500 text-center">
+            💡 Tip: Create a GitHub Personal Access Token at{' '}
+            <span className="font-mono">github.com/settings/tokens</span> with{' '}
+            <span className="font-mono">repo</span> permissions
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
